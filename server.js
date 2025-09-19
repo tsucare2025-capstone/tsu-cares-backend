@@ -132,13 +132,13 @@ app.post('/api/auth/login', async (req, res) => {
 // Signup endpoint - Save to existing student table
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { name, email, password, student_id, course, year_level, contact_number } = req.body;
+    const { name, email, password, student_id, course, year_level, contact_number, gender } = req.body;
     console.log('Student signup attempt for email:', email, 'name:', name);
     
-    if (!name || !email || !password || !student_id || !course || !year_level || !contact_number) {
+    if (!name || !email || !password || !student_id || !course || !year_level || !contact_number || !gender) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, password, student ID, course, year level, and contact number are all required'
+        message: 'Name, email, password, student ID, course, year level, contact number, and gender are all required'
       });
     }
     
@@ -182,13 +182,13 @@ app.post('/api/auth/signup', async (req, res) => {
     
     // Insert new student using existing table structure
     const [result] = await db.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, counselorID) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, student_id, course, year_level, 1] // counselorID set to 1 as default
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, student_id, course, year_level, gender, 1] // counselorID set to 1 as default
     );
     
     // Get the created student
     const [newStudent] = await db.execute(
-      'SELECT studentID, name, email, studentNo, college, program FROM student WHERE studentID = ?',
+      'SELECT studentID, name, email, studentNo, college, program, gender FROM student WHERE studentID = ?',
       [result.insertId]
     );
     
@@ -200,9 +200,16 @@ app.post('/api/auth/signup', async (req, res) => {
     
   } catch (error) {
     console.error('Student signup error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
+      error: error.message
     });
   }
 });
@@ -219,7 +226,7 @@ app.get('/api/health', (req, res) => {
 // Debug endpoint to check all students
 app.get('/api/debug/students', async (req, res) => {
   try {
-    const [students] = await db.execute('SELECT studentID, name, email, studentNo, college, program FROM student ORDER BY studentID DESC');
+    const [students] = await db.execute('SELECT studentID, name, email, studentNo, college, program, gender FROM student ORDER BY studentID DESC');
     res.json({
       success: true,
       count: students.length,
@@ -248,6 +255,25 @@ app.delete('/api/debug/clear-students', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error clearing students',
+      error: error.message
+    });
+  }
+});
+
+// Test database connection endpoint
+app.get('/api/debug/test-db', async (req, res) => {
+  try {
+    const [result] = await db.execute('SELECT 1 as test');
+    res.json({
+      success: true,
+      message: 'Database connection successful',
+      test: result[0]
+    });
+  } catch (error) {
+    console.error('Database test error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database connection failed',
       error: error.message
     });
   }
