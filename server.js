@@ -148,24 +148,47 @@ app.post('/api/auth/signup', async (req, res) => {
     const { name, email, password, student_id, course, year_level, contact_number } = req.body;
     console.log('Student signup attempt for email:', email, 'name:', name);
     
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !student_id || !course || !year_level || !contact_number) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, and password are required'
+        message: 'Name, email, password, student ID, course, year level, and contact number are all required'
       });
     }
     
     // Check if student already exists
+    console.log('Checking for existing student with email:', email);
+    
+    // Debug: Check all students in the table
+    const [allStudents] = await db.execute('SELECT id, email FROM student');
+    console.log('All students in database:', allStudents);
+    
     const [existingStudents] = await db.execute(
       'SELECT id FROM student WHERE email = ?',
       [email]
     );
+    console.log('Existing students found:', existingStudents.length);
     
     if (existingStudents.length > 0) {
+      console.log('Student already exists with email:', email);
       return res.status(409).json({
         success: false,
         message: 'Student with this email already exists'
       });
+    }
+    
+    // Also check if student_id already exists (if provided)
+    if (student_id) {
+      const [existingStudentId] = await db.execute(
+        'SELECT id FROM student WHERE student_id = ?',
+        [student_id]
+      );
+      
+      if (existingStudentId.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Student ID already exists'
+        });
+      }
     }
     
     // Hash password
@@ -175,7 +198,7 @@ app.post('/api/auth/signup', async (req, res) => {
     // Insert new student
     const [result] = await db.execute(
       'INSERT INTO student (name, email, password, student_id, course, year_level, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, student_id || null, course || null, year_level || null, contact_number || null]
+      [name, email, hashedPassword, student_id, course, year_level, contact_number]
     );
     
     // Get the created student
