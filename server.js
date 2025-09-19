@@ -61,6 +61,22 @@ async function initDatabase() {
       )
     `);
     console.log('✅ Users table ready');
+    
+    // Create student table if it doesn't exist
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS student (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        student_id VARCHAR(50) UNIQUE,
+        course VARCHAR(100),
+        year_level VARCHAR(20),
+        contact_number VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Student table ready');
   } catch (error) {
     console.error('❌ Database connection failed:', error);
     console.error('Database config used:', dbConfig);
@@ -83,9 +99,9 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Find user by email
+    // Find student by email
     const [rows] = await db.execute(
-      'SELECT * FROM users WHERE email = ?',
+      'SELECT * FROM student WHERE email = ?',
       [email]
     );
     
@@ -96,10 +112,10 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    const user = rows[0];
+    const student = rows[0];
     
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    const isValidPassword = await bcrypt.compare(password, student.password);
     
     if (!isValidPassword) {
       return res.status(401).json({
@@ -108,13 +124,13 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Return user data (without password)
-    const { password: _, ...userWithoutPassword } = user;
+    // Return student data (without password)
+    const { password: _, ...studentWithoutPassword } = student;
     
     res.json({
       success: true,
       message: 'Login successful',
-      data: userWithoutPassword
+      data: studentWithoutPassword
     });
     
   } catch (error) {
@@ -126,11 +142,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Signup endpoint
+// Signup endpoint - Save to student table
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    console.log('Signup attempt for email:', email, 'name:', name);
+    const { name, email, password, student_id, course, year_level, contact_number } = req.body;
+    console.log('Student signup attempt for email:', email, 'name:', name);
     
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -139,16 +155,16 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
     
-    // Check if user already exists
-    const [existingUsers] = await db.execute(
-      'SELECT id FROM users WHERE email = ?',
+    // Check if student already exists
+    const [existingStudents] = await db.execute(
+      'SELECT id FROM student WHERE email = ?',
       [email]
     );
     
-    if (existingUsers.length > 0) {
+    if (existingStudents.length > 0) {
       return res.status(409).json({
         success: false,
-        message: 'User with this email already exists'
+        message: 'Student with this email already exists'
       });
     }
     
@@ -156,26 +172,26 @@ app.post('/api/auth/signup', async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
-    // Insert new user
+    // Insert new student
     const [result] = await db.execute(
-      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
-      [name, email, hashedPassword]
+      'INSERT INTO student (name, email, password, student_id, course, year_level, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, student_id || null, course || null, year_level || null, contact_number || null]
     );
     
-    // Get the created user
-    const [newUser] = await db.execute(
-      'SELECT id, name, email, created_at FROM users WHERE id = ?',
+    // Get the created student
+    const [newStudent] = await db.execute(
+      'SELECT id, name, email, student_id, course, year_level, contact_number, created_at FROM student WHERE id = ?',
       [result.insertId]
     );
     
     res.status(201).json({
       success: true,
-      message: 'User created successfully',
-      data: newUser[0]
+      message: 'Student account created successfully',
+      data: newStudent[0]
     });
     
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error('Student signup error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
