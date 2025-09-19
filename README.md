@@ -14,16 +14,19 @@ This is the backend API for the TSU Cares Android application, designed to be de
 
 ### 2. Environment Variables
 
-Set these environment variables in your Railway project:
+Railway automatically provides these environment variables when you add a MySQL database:
 
 ```
-DB_HOST=your-railway-mysql-host.railway.app
-DB_USER=your-railway-username
-DB_PASSWORD=your-railway-password
-DB_NAME=your-railway-database-name
-DB_PORT=3306
+MYSQLHOST=mysql.railway.internal
+MYSQLUSER=root
+MYSQLPASSWORD=your-railway-password
+MYSQLDATABASE=railway
+MYSQLPORT=3306
 NODE_ENV=production
+PORT=3000
 ```
+
+**Note**: Railway automatically sets these variables when you add a MySQL database service. You don't need to manually set them unless you want to override them.
 
 ### 3. Update Android App
 
