@@ -7,6 +7,16 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Validate environment variables
+console.log('Environment variables check:');
+console.log('MYSQLHOST:', process.env.MYSQLHOST ? '✅ Set' : '❌ Missing');
+console.log('MYSQLUSER:', process.env.MYSQLUSER ? '✅ Set' : '❌ Missing');
+console.log('MYSQLPASSWORD:', process.env.MYSQLPASSWORD ? '✅ Set' : '❌ Missing');
+console.log('MYSQLDATABASE:', process.env.MYSQLDATABASE ? '✅ Set' : '❌ Missing');
+console.log('MYSQLPORT:', process.env.MYSQLPORT ? '✅ Set' : '❌ Missing');
+console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('PORT:', PORT);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -17,8 +27,12 @@ const dbConfig = {
   user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
   password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
   database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'railway',
-  port: process.env.MYSQLPORT || process.env.DB_PORT || 3306,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  port: parseInt(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  connectTimeout: 60000,
+  acquireTimeout: 60000,
+  timeout: 60000,
+  reconnect: true
 };
 
 let db;
@@ -180,12 +194,44 @@ app.get('/api/health', (req, res) => {
 
 // Start server
 async function startServer() {
-  await initDatabase();
-  
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/api/health`);
-  });
+  try {
+    await initDatabase();
+    
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Server is running on port ${PORT}`);
+      console.log(`✅ Health check: http://localhost:${PORT}/api/health`);
+    });
+
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received, shutting down gracefully');
+      server.close(() => {
+        console.log('Process terminated');
+        if (db) {
+          db.end();
+        }
+        process.exit(0);
+      });
+    });
+
+    process.on('SIGINT', () => {
+      console.log('SIGINT received, shutting down gracefully');
+      server.close(() => {
+        console.log('Process terminated');
+        if (db) {
+          db.end();
+        }
+        process.exit(0);
+      });
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
 }
 
-startServer().catch(console.error);
+startServer().catch((error) => {
+  console.error('❌ Unhandled error:', error);
+  process.exit(1);
+});
