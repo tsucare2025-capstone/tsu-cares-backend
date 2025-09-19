@@ -62,21 +62,8 @@ async function initDatabase() {
     `);
     console.log('✅ Users table ready');
     
-    // Create student table if it doesn't exist
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS student (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        student_id VARCHAR(50) UNIQUE,
-        course VARCHAR(100),
-        year_level VARCHAR(20),
-        contact_number VARCHAR(20),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ Student table ready');
+// Check if student table exists (it should already exist in Railway)
+console.log('✅ Using existing student table');
   } catch (error) {
     console.error('❌ Database connection failed:', error);
     console.error('Database config used:', dbConfig);
@@ -99,7 +86,7 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Find student by email
+    // Find student by email using existing table structure
     const [rows] = await db.execute(
       'SELECT * FROM student WHERE email = ?',
       [email]
@@ -124,8 +111,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Return student data (without password)
-    const { password: _, ...studentWithoutPassword } = student;
+    // Return student data (without password and sensitive fields)
+    const { password: _, is_verified, otp, otp_expiry, ...studentWithoutPassword } = student;
     
     res.json({
       success: true,
@@ -142,7 +129,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Signup endpoint - Save to student table
+// Signup endpoint - Save to existing student table
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password, student_id, course, year_level, contact_number } = req.body;
@@ -159,11 +146,11 @@ app.post('/api/auth/signup', async (req, res) => {
     console.log('Checking for existing student with email:', email);
     
     // Debug: Check all students in the table
-    const [allStudents] = await db.execute('SELECT id, email FROM student');
+    const [allStudents] = await db.execute('SELECT studentID, email FROM student');
     console.log('All students in database:', allStudents);
     
     const [existingStudents] = await db.execute(
-      'SELECT id FROM student WHERE email = ?',
+      'SELECT studentID FROM student WHERE email = ?',
       [email]
     );
     console.log('Existing students found:', existingStudents.length);
@@ -176,34 +163,32 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
     
-    // Also check if student_id already exists (if provided)
-    if (student_id) {
-      const [existingStudentId] = await db.execute(
-        'SELECT id FROM student WHERE student_id = ?',
-        [student_id]
-      );
-      
-      if (existingStudentId.length > 0) {
-        return res.status(409).json({
-          success: false,
-          message: 'Student ID already exists'
-        });
-      }
+    // Also check if studentNo already exists
+    const [existingStudentNo] = await db.execute(
+      'SELECT studentID FROM student WHERE studentNo = ?',
+      [student_id]
+    );
+    
+    if (existingStudentNo.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Student ID already exists'
+      });
     }
     
     // Hash password
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
-    // Insert new student
+    // Insert new student using existing table structure
     const [result] = await db.execute(
-      'INSERT INTO student (name, email, password, student_id, course, year_level, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, student_id, course, year_level, contact_number]
+      'INSERT INTO student (name, email, password, studentNo, college, program, counselorID) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, student_id, course, year_level, 1] // counselorID set to 1 as default
     );
     
     // Get the created student
     const [newStudent] = await db.execute(
-      'SELECT id, name, email, student_id, course, year_level, contact_number, created_at FROM student WHERE id = ?',
+      'SELECT studentID, name, email, studentNo, college, program FROM student WHERE studentID = ?',
       [result.insertId]
     );
     
@@ -229,6 +214,43 @@ app.get('/api/health', (req, res) => {
     message: 'TSU Cares API is running',
     timestamp: new Date().toISOString()
   });
+});
+
+// Debug endpoint to check all students
+app.get('/api/debug/students', async (req, res) => {
+  try {
+    const [students] = await db.execute('SELECT studentID, name, email, studentNo, college, program FROM student ORDER BY studentID DESC');
+    res.json({
+      success: true,
+      count: students.length,
+      students: students
+    });
+  } catch (error) {
+    console.error('Debug students error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching students',
+      error: error.message
+    });
+  }
+});
+
+// Debug endpoint to clear all students (for testing only)
+app.delete('/api/debug/clear-students', async (req, res) => {
+  try {
+    await db.execute('DELETE FROM student');
+    res.json({
+      success: true,
+      message: 'All students cleared from database'
+    });
+  } catch (error) {
+    console.error('Clear students error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error clearing students',
+      error: error.message
+    });
+  }
 });
 
 // Start server
