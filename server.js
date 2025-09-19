@@ -11,13 +11,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Database connection
+// Database connection - Railway uses different environment variable names
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'tsu_cares',
-  port: process.env.DB_PORT || 3306,
+  host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
+  user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
+  password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
+  database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'railway',
+  port: process.env.MYSQLPORT || process.env.DB_PORT || 3306,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 };
 
@@ -26,8 +26,15 @@ let db;
 // Initialize database connection
 async function initDatabase() {
   try {
+    console.log('Attempting to connect to database with config:', {
+      host: dbConfig.host,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      port: dbConfig.port
+    });
+    
     db = await mysql.createConnection(dbConfig);
-    console.log('Connected to MySQL database');
+    console.log('✅ Connected to MySQL database successfully');
     
     // Create users table if it doesn't exist
     await db.execute(`
@@ -39,9 +46,10 @@ async function initDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('Users table ready');
+    console.log('✅ Users table ready');
   } catch (error) {
-    console.error('Database connection failed:', error);
+    console.error('❌ Database connection failed:', error);
+    console.error('Database config used:', dbConfig);
     process.exit(1);
   }
 }
@@ -52,6 +60,7 @@ async function initDatabase() {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log('Login attempt for email:', email);
     
     if (!email || !password) {
       return res.status(400).json({
@@ -107,6 +116,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
+    console.log('Signup attempt for email:', email, 'name:', name);
     
     if (!name || !email || !password) {
       return res.status(400).json({
