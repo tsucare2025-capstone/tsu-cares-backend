@@ -207,9 +207,10 @@ app.post('/api/auth/signup', async (req, res) => {
       gender
     });
     
+    // Try to insert with all possible fields to avoid missing field errors
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0, '', null] // counselorID set to 1 as default, is_verified set to 0 (false), otp set to empty string, otp_expiry set to null
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0, '', null, contact_number] // Include contact_number as well
     );
     
     // Get the created student
@@ -334,6 +335,14 @@ app.get('/api/debug/table-structure', async (req, res) => {
   try {
     connection = await db.getConnection();
     const [columns] = await connection.execute('DESCRIBE student');
+    
+    // Log the table structure for debugging
+    console.log('=== STUDENT TABLE STRUCTURE ===');
+    columns.forEach(col => {
+      console.log(`${col.Field}: ${col.Type} | Null: ${col.Null} | Default: ${col.Default} | Key: ${col.Key}`);
+    });
+    console.log('===============================');
+    
     res.json({
       success: true,
       message: 'Table structure retrieved',
@@ -366,8 +375,8 @@ app.post('/api/debug/test-signup', async (req, res) => {
     
     // Test the exact INSERT query with all required fields
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, password, studentNoInt, course, year_level, gender, 1, 0, '', null]
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, password, studentNoInt, course, year_level, gender, 1, 0, '', null, contact_number]
     );
     
     res.json({
