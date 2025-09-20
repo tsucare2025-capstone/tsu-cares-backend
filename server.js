@@ -59,17 +59,7 @@ async function initDatabase() {
     const connection = await db.getConnection();
     console.log('✅ Successfully connected to MySQL database');
     
-    // Create users table if it doesn't exist
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ Users table ready');
+    // No need to create users table - we're using the existing student table
     
     // Release the connection back to the pool
     connection.release();
