@@ -192,8 +192,8 @@ app.post('/api/auth/signup', async (req, res) => {
     
     // Insert new student with counselor assignment
     const [result] = await db.execute(
-      'INSERT INTO student (name, studentNo, gender, email, password, college, program, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)',
-      [name, studentNo, gender, email, hashedPassword, college, program, counselorID]
+      'INSERT INTO student (name, studentNo, gender, email, password, college, program, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)',
+      [name, studentNo, gender, email, hashedPassword, college, program, counselorID, '', '']
     );
     
     // Get the created student
