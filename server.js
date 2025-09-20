@@ -160,10 +160,21 @@ app.post('/api/auth/signup', async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
-    // Insert new student with default values for optional fields
+    // Find counselor based on student's college
+    const [counselorRows] = await db.execute(
+      'SELECT counselorID FROM counselor WHERE assignedCollege = ?',
+      [college]
+    );
+    
+    let counselorID = null;
+    if (counselorRows.length > 0) {
+      counselorID = counselorRows[0].counselorID;
+    }
+    
+    // Insert new student with counselor assignment
     const [result] = await db.execute(
-      'INSERT INTO student (name, studentNo, gender, email, password, college, program, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-      [name, studentNo, gender, email, hashedPassword, college, program]
+      'INSERT INTO student (name, studentNo, gender, email, password, college, program, counselorID, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
+      [name, studentNo, gender, email, hashedPassword, college, program, counselorID]
     );
     
     // Get the created student
