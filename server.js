@@ -226,8 +226,8 @@ app.post('/api/auth/signup', async (req, res) => {
     });
     
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0] // counselorID set to 1 as default, is_verified set to 0 (false)
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0, ''] // counselorID set to 1 as default, is_verified set to 0 (false), otp set to empty string
     );
     
     // Get the created student
@@ -384,8 +384,8 @@ app.post('/api/debug/test-signup', async (req, res) => {
     
     // Test the exact INSERT query with all required fields
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, password, studentNoInt, course, year_level, gender, 1, 0]
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, password, studentNoInt, course, year_level, gender, 1, 0, '']
     );
     
     res.json({
