@@ -29,15 +29,19 @@ const dbConfig = {
   database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'railway',
   port: parseInt(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  connectTimeout: 60000,
+  // Connection pool settings for better reliability
+  connectionLimit: 10,
   acquireTimeout: 60000,
   timeout: 60000,
-  reconnect: true
+  reconnect: true,
+  // Keep connections alive
+  keepAliveInitialDelay: 0,
+  enableKeepAlive: true
 };
 
 let db;
 
-// Initialize database connection
+// Initialize database connection with pool
 async function initDatabase() {
   try {
     console.log('Attempting to connect to database with config:', {
@@ -47,11 +51,16 @@ async function initDatabase() {
       port: dbConfig.port
     });
     
-    db = await mysql.createConnection(dbConfig);
-    console.log('✅ Connected to MySQL database successfully');
+    // Use createPool instead of createConnection for better reliability
+    db = mysql.createPool(dbConfig);
+    console.log('✅ Created MySQL connection pool successfully');
+    
+    // Test the connection
+    const connection = await db.getConnection();
+    console.log('✅ Successfully connected to MySQL database');
     
     // Create users table if it doesn't exist
-    await db.execute(`
+    await connection.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -62,8 +71,11 @@ async function initDatabase() {
     `);
     console.log('✅ Users table ready');
     
-// Check if student table exists (it should already exist in Railway)
-console.log('✅ Using existing student table');
+    // Release the connection back to the pool
+    connection.release();
+    
+    // Check if student table exists (it should already exist in Railway)
+    console.log('✅ Using existing student table');
   } catch (error) {
     console.error('❌ Database connection failed:', error);
     console.error('Database config used:', dbConfig);
@@ -75,6 +87,7 @@ console.log('✅ Using existing student table');
 
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
+  let connection;
   try {
     const { email, password } = req.body;
     console.log('Login attempt for email:', email);
@@ -86,8 +99,11 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
+    // Get connection from pool
+    connection = await db.getConnection();
+    
     // Find student by email using existing table structure
-    const [rows] = await db.execute(
+    const [rows] = await connection.execute(
       'SELECT * FROM student WHERE email = ?',
       [email]
     );
@@ -126,11 +142,17 @@ app.post('/api/auth/login', async (req, res) => {
       success: false,
       message: 'Internal server error'
     });
+  } finally {
+    // Always release the connection back to the pool
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
 // Signup endpoint - Save to existing student table
 app.post('/api/auth/signup', async (req, res) => {
+  let connection;
   try {
     const { name, email, password, student_id, course, year_level, contact_number, gender } = req.body;
     console.log('Student signup attempt for email:', email, 'name:', name);
@@ -142,14 +164,17 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
     
+    // Get connection from pool
+    connection = await db.getConnection();
+    
     // Check if student already exists
     console.log('Checking for existing student with email:', email);
     
     // Debug: Check all students in the table
-    const [allStudents] = await db.execute('SELECT studentID, email FROM student');
+    const [allStudents] = await connection.execute('SELECT studentID, email FROM student');
     console.log('All students in database:', allStudents);
     
-    const [existingStudents] = await db.execute(
+    const [existingStudents] = await connection.execute(
       'SELECT studentID FROM student WHERE email = ?',
       [email]
     );
@@ -164,7 +189,7 @@ app.post('/api/auth/signup', async (req, res) => {
     }
     
     // Also check if studentNo already exists
-    const [existingStudentNo] = await db.execute(
+    const [existingStudentNo] = await connection.execute(
       'SELECT studentID FROM student WHERE studentNo = ?',
       [student_id]
     );
@@ -181,13 +206,13 @@ app.post('/api/auth/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
     // Insert new student using existing table structure
-    const [result] = await db.execute(
+    const [result] = await connection.execute(
       'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [name, email, hashedPassword, student_id, course, year_level, gender, 1] // counselorID set to 1 as default
     );
     
     // Get the created student
-    const [newStudent] = await db.execute(
+    const [newStudent] = await connection.execute(
       'SELECT studentID, name, email, studentNo, college, program, gender FROM student WHERE studentID = ?',
       [result.insertId]
     );
@@ -211,6 +236,11 @@ app.post('/api/auth/signup', async (req, res) => {
       message: 'Internal server error',
       error: error.message
     });
+  } finally {
+    // Always release the connection back to the pool
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
@@ -225,8 +255,10 @@ app.get('/api/health', (req, res) => {
 
 // Debug endpoint to check all students
 app.get('/api/debug/students', async (req, res) => {
+  let connection;
   try {
-    const [students] = await db.execute('SELECT studentID, name, email, studentNo, college, program, gender FROM student ORDER BY studentID DESC');
+    connection = await db.getConnection();
+    const [students] = await connection.execute('SELECT studentID, name, email, studentNo, college, program, gender FROM student ORDER BY studentID DESC');
     res.json({
       success: true,
       count: students.length,
@@ -239,13 +271,19 @@ app.get('/api/debug/students', async (req, res) => {
       message: 'Error fetching students',
       error: error.message
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
 // Debug endpoint to clear all students (for testing only)
 app.delete('/api/debug/clear-students', async (req, res) => {
+  let connection;
   try {
-    await db.execute('DELETE FROM student');
+    connection = await db.getConnection();
+    await connection.execute('DELETE FROM student');
     res.json({
       success: true,
       message: 'All students cleared from database'
@@ -257,13 +295,19 @@ app.delete('/api/debug/clear-students', async (req, res) => {
       message: 'Error clearing students',
       error: error.message
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
 // Test database connection endpoint
 app.get('/api/debug/test-db', async (req, res) => {
+  let connection;
   try {
-    const [result] = await db.execute('SELECT 1 as test');
+    connection = await db.getConnection();
+    const [result] = await connection.execute('SELECT 1 as test');
     res.json({
       success: true,
       message: 'Database connection successful',
@@ -276,6 +320,10 @@ app.get('/api/debug/test-db', async (req, res) => {
       message: 'Database connection failed',
       error: error.message
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
@@ -292,10 +340,10 @@ async function startServer() {
     // Graceful shutdown
     process.on('SIGTERM', () => {
       console.log('SIGTERM received, shutting down gracefully');
-      server.close(() => {
+      server.close(async () => {
         console.log('Process terminated');
         if (db) {
-          db.end();
+          await db.end();
         }
         process.exit(0);
       });
@@ -303,10 +351,10 @@ async function startServer() {
 
     process.on('SIGINT', () => {
       console.log('SIGINT received, shutting down gracefully');
-      server.close(() => {
+      server.close(async () => {
         console.log('Process terminated');
         if (db) {
-          db.end();
+          await db.end();
         }
         process.exit(0);
       });
