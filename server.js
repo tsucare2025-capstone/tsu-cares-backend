@@ -162,7 +162,7 @@ app.post('/api/auth/signup', async (req, res) => {
     
     // Insert new student with default values for optional fields
     const [result] = await db.execute(
-      'INSERT INTO student (name, studentNo, gender, email, password, college, program, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL)',
+      'INSERT INTO student (name, studentNo, gender, email, password, college, program, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
       [name, studentNo, gender, email, hashedPassword, college, program]
     );
     
