@@ -29,19 +29,15 @@ const dbConfig = {
   database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'railway',
   port: parseInt(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  // Connection pool settings for better reliability
-  connectionLimit: 10,
+  connectTimeout: 60000,
   acquireTimeout: 60000,
   timeout: 60000,
-  reconnect: true,
-  // Keep connections alive
-  keepAliveInitialDelay: 0,
-  enableKeepAlive: true
+  reconnect: true
 };
 
 let db;
 
-// Initialize database connection with pool
+// Initialize database connection
 async function initDatabase() {
   try {
     console.log('Attempting to connect to database with config:', {
@@ -51,21 +47,15 @@ async function initDatabase() {
       port: dbConfig.port
     });
     
-    // Use createPool instead of createConnection for better reliability
-    db = mysql.createPool(dbConfig);
-    console.log('✅ Created MySQL connection pool successfully');
+    db = await mysql.createConnection(dbConfig);
+    console.log('✅ Connected to MySQL database successfully');
     
-    // Test the connection
-    const connection = await db.getConnection();
-    console.log('✅ Successfully connected to MySQL database');
-    
-    // No need to create users table - we're using the existing student table
-    
-    // Release the connection back to the pool
-    connection.release();
-    
-    // Check if student table exists (it should already exist in Railway)
-    console.log('✅ Using existing student table');
+    // Verify student table exists (it should already be created in Railway)
+    const [tables] = await db.execute("SHOW TABLES LIKE 'student'");
+    if (tables.length === 0) {
+      throw new Error('Student table not found in database');
+    }
+    console.log('✅ Student table ready');
   } catch (error) {
     console.error('❌ Database connection failed:', error);
     console.error('Database config used:', dbConfig);
@@ -77,7 +67,6 @@ async function initDatabase() {
 
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
-  let connection;
   try {
     const { email, password } = req.body;
     console.log('Login attempt for email:', email);
@@ -89,11 +78,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Get connection from pool
-    connection = await db.getConnection();
-    
-    // Find student by email using existing table structure
-    const [rows] = await connection.execute(
+    // Find student by email
+    const [rows] = await db.execute(
       'SELECT * FROM student WHERE email = ?',
       [email]
     );
@@ -105,10 +91,10 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    const student = rows[0];
+    const user = rows[0];
     
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, student.password);
+    const isValidPassword = await bcrypt.compare(password, user.password);
     
     if (!isValidPassword) {
       return res.status(401).json({
@@ -117,8 +103,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Return student data (without password and sensitive fields)
-    const { password: _, is_verified, otp, otp_expiry, ...studentWithoutPassword } = student;
+    // Return student data (without password)
+    const { password: _, ...studentWithoutPassword } = user;
     
     res.json({
       success: true,
@@ -132,54 +118,41 @@ app.post('/api/auth/login', async (req, res) => {
       success: false,
       message: 'Internal server error'
     });
-  } finally {
-    // Always release the connection back to the pool
-    if (connection) {
-      connection.release();
-    }
   }
 });
 
-// Signup endpoint - Save to existing student table
+// Signup endpoint
 app.post('/api/auth/signup', async (req, res) => {
-  let connection;
   try {
-    const { name, email, password, studentNo, course, year_level, contact_number, gender } = req.body;
-    console.log('Student signup attempt for email:', email, 'name:', name);
+    const { name, studentNo, gender, email, password, college, program } = req.body;
+    console.log('Signup attempt for email:', email, 'name:', name, 'studentNo:', studentNo);
     
-    if (!name || !email || !password || !studentNo || !course || !year_level || !contact_number || !gender) {
+    // Validate required fields
+    if (!name || !studentNo || !gender || !email || !password || !college || !program) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, password, student number, course, year level, contact number, and gender are all required'
+        message: 'Name, studentNo, gender, email, password, college, and program are required'
       });
     }
     
-    // Convert studentNo to integer since studentNo is mediumint
-    const studentNoInt = parseInt(studentNo, 10);
-    
-    if (isNaN(studentNoInt)) {
+    // Validate studentNo is a valid integer
+    if (!Number.isInteger(Number(studentNo)) || Number(studentNo) <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'Student Number must be a valid number'
+        message: 'Student number must be a valid positive integer'
       });
     }
     
-    // Get connection from pool
-    connection = await db.getConnection();
-    
-    // Email validation removed as requested
-    console.log('Skipping email validation - proceeding with signup');
-    
-    // Also check if studentNo already exists
-    const [existingStudentNo] = await connection.execute(
-      'SELECT studentID FROM student WHERE studentNo = ?',
-      [studentNoInt]
+    // Check if student already exists by email or studentNo
+    const [existingStudents] = await db.execute(
+      'SELECT studentID FROM student WHERE email = ? OR studentNo = ?',
+      [email, studentNo]
     );
     
-    if (existingStudentNo.length > 0) {
+    if (existingStudents.length > 0) {
       return res.status(409).json({
         success: false,
-        message: 'Student Number already exists'
+        message: 'Student with this email or student number already exists'
       });
     }
     
@@ -187,52 +160,30 @@ app.post('/api/auth/signup', async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
-    // Insert new student using existing table structure
-    console.log('Inserting student with data:', {
-      name,
-      email,
-      studentNo: studentNoInt,
-      college: course,
-      program: year_level,
-      gender
-    });
-    
-    // Try to insert with all possible fields to avoid missing field errors
-    const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0, '', null, contact_number] // Include contact_number as well
+    // Insert new student with default values for optional fields
+    const [result] = await db.execute(
+      'INSERT INTO student (name, studentNo, gender, email, password, college, program, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL)',
+      [name, studentNo, gender, email, hashedPassword, college, program]
     );
     
     // Get the created student
-    const [newStudent] = await connection.execute(
-      'SELECT studentID, name, email, studentNo, college, program, gender FROM student WHERE studentID = ?',
+    const [newStudent] = await db.execute(
+      'SELECT studentID, name, studentNo, gender, email, college, program, is_verified FROM student WHERE studentID = ?',
       [result.insertId]
     );
     
     res.status(201).json({
       success: true,
-      message: 'Student account created successfully',
+      message: 'Student created successfully',
       data: newStudent[0]
     });
     
   } catch (error) {
-    console.error('Student signup error:', error);
-    console.error('Error details:', {
-      message: error.message,
-      code: error.code,
-      sqlState: error.sqlState,
-      sqlMessage: error.sqlMessage
-    });
+    console.error('Signup error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: error.message
+      message: 'Internal server error'
     });
-  } finally {
-    // Always release the connection back to the pool
-    if (connection) {
-      connection.release();
-    }
   }
 });
 
@@ -243,170 +194,6 @@ app.get('/api/health', (req, res) => {
     message: 'TSU Cares API is running',
     timestamp: new Date().toISOString()
   });
-});
-
-// Debug endpoint to check all students
-app.get('/api/debug/students', async (req, res) => {
-  let connection;
-  try {
-    connection = await db.getConnection();
-    const [students] = await connection.execute('SELECT studentID, name, email, studentNo, college, program, gender FROM student ORDER BY studentID DESC');
-    res.json({
-      success: true,
-      count: students.length,
-      students: students
-    });
-  } catch (error) {
-    console.error('Debug students error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching students',
-      error: error.message
-    });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-
-// Debug endpoint to clear all students (for testing only)
-app.delete('/api/debug/clear-students', async (req, res) => {
-  let connection;
-  try {
-    connection = await db.getConnection();
-    await connection.execute('DELETE FROM student');
-    res.json({
-      success: true,
-      message: 'All students cleared from database'
-    });
-  } catch (error) {
-    console.error('Clear students error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error clearing students',
-      error: error.message
-    });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-
-// Test database connection endpoint
-app.get('/api/debug/test-db', async (req, res) => {
-  let connection;
-  try {
-    connection = await db.getConnection();
-    const [result] = await connection.execute('SELECT 1 as test');
-    res.json({
-      success: true,
-      message: 'Database connection successful',
-      test: result[0]
-    });
-  } catch (error) {
-    console.error('Database test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database connection failed',
-      error: error.message
-    });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-
-// Debug endpoint to check table structure
-app.get('/api/debug/table-structure', async (req, res) => {
-  let connection;
-  try {
-    connection = await db.getConnection();
-    const [columns] = await connection.execute('DESCRIBE student');
-    
-    // Log the table structure for debugging
-    console.log('=== STUDENT TABLE STRUCTURE ===');
-    columns.forEach(col => {
-      console.log(`${col.Field}: ${col.Type} | Null: ${col.Null} | Default: ${col.Default} | Key: ${col.Key}`);
-    });
-    console.log('===============================');
-    
-    res.json({
-      success: true,
-      message: 'Table structure retrieved',
-      columns: columns
-    });
-  } catch (error) {
-    console.error('Table structure error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error getting table structure',
-      error: error.message
-    });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-
-// Debug endpoint to test signup with minimal data
-app.post('/api/debug/test-signup', async (req, res) => {
-  let connection;
-  try {
-    const { name, email, password, studentNo, course, year_level, contact_number, gender } = req.body;
-    
-    // Convert studentNo to integer
-    const studentNoInt = parseInt(studentNo, 10);
-    
-    connection = await db.getConnection();
-    
-    // First, let's see what fields are actually in the table
-    const [columns] = await connection.execute('DESCRIBE student');
-    console.log('=== TESTING WITH TABLE STRUCTURE ===');
-    columns.forEach(col => {
-      console.log(`${col.Field}: ${col.Type} | Null: ${col.Null} | Default: ${col.Default}`);
-    });
-    
-    // Try a simple INSERT with just the basic fields first
-    try {
-      const [result] = await connection.execute(
-        'INSERT INTO student (name, email, password, studentNo) VALUES (?, ?, ?, ?)',
-        [name, email, password, studentNoInt]
-      );
-      
-      res.json({
-        success: true,
-        message: 'Basic test signup successful',
-        insertId: result.insertId,
-        columns: columns
-      });
-    } catch (insertError) {
-      console.error('Basic insert failed:', insertError);
-      res.status(500).json({
-        success: false,
-        message: 'Basic insert failed - showing required fields',
-        error: insertError.message,
-        code: insertError.code,
-        columns: columns
-      });
-    }
-  } catch (error) {
-    console.error('Test signup error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Test signup failed',
-      error: error.message,
-      code: error.code,
-      sqlState: error.sqlState
-    });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
 });
 
 // Start server
@@ -422,10 +209,10 @@ async function startServer() {
     // Graceful shutdown
     process.on('SIGTERM', () => {
       console.log('SIGTERM received, shutting down gracefully');
-      server.close(async () => {
+      server.close(() => {
         console.log('Process terminated');
         if (db) {
-          await db.end();
+          db.end();
         }
         process.exit(0);
       });
@@ -433,10 +220,10 @@ async function startServer() {
 
     process.on('SIGINT', () => {
       console.log('SIGINT received, shutting down gracefully');
-      server.close(async () => {
+      server.close(() => {
         console.log('Process terminated');
         if (db) {
-          await db.end();
+          db.end();
         }
         process.exit(0);
       });
