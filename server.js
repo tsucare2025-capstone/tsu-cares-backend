@@ -177,26 +177,8 @@ app.post('/api/auth/signup', async (req, res) => {
     // Get connection from pool
     connection = await db.getConnection();
     
-    // Check if student already exists
-    console.log('Checking for existing student with email:', email);
-    
-    // Debug: Check all students in the table
-    const [allStudents] = await connection.execute('SELECT studentID, email FROM student');
-    console.log('All students in database:', allStudents);
-    
-    const [existingStudents] = await connection.execute(
-      'SELECT studentID FROM student WHERE email = ?',
-      [email]
-    );
-    console.log('Existing students found:', existingStudents.length);
-    
-    if (existingStudents.length > 0) {
-      console.log('Student already exists with email:', email);
-      return res.status(409).json({
-        success: false,
-        message: 'Student with this email already exists'
-      });
-    }
+    // Email validation removed as requested
+    console.log('Skipping email validation - proceeding with signup');
     
     // Also check if studentNo already exists
     const [existingStudentNo] = await connection.execute(
@@ -226,8 +208,8 @@ app.post('/api/auth/signup', async (req, res) => {
     });
     
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0, ''] // counselorID set to 1 as default, is_verified set to 0 (false), otp set to empty string
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0, '', null] // counselorID set to 1 as default, is_verified set to 0 (false), otp set to empty string, otp_expiry set to null
     );
     
     // Get the created student
@@ -384,8 +366,8 @@ app.post('/api/debug/test-signup', async (req, res) => {
     
     // Test the exact INSERT query with all required fields
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, password, studentNoInt, course, year_level, gender, 1, 0, '']
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, password, studentNoInt, course, year_level, gender, 1, 0, '', null]
     );
     
     res.json({
