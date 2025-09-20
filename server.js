@@ -190,10 +190,14 @@ app.post('/api/auth/signup', async (req, res) => {
       console.log('Using default counselorID:', counselorID);
     }
     
+    // Calculate OTP expiry date (30 days from now)
+    const otpExpiryDate = new Date();
+    otpExpiryDate.setDate(otpExpiryDate.getDate() + 30);
+    
     // Insert new student with counselor assignment
     const [result] = await db.execute(
       'INSERT INTO student (name, studentNo, gender, email, password, college, program, counselorID, is_verified, otp, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)',
-      [name, studentNo, gender, email, hashedPassword, college, program, counselorID, '', '']
+      [name, studentNo, gender, email, hashedPassword, college, program, counselorID, '', otpExpiryDate]
     );
     
     // Get the created student
