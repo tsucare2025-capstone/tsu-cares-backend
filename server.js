@@ -164,6 +164,16 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
     
+    // Convert student_id to integer since studentNo is mediumint
+    const studentNoInt = parseInt(student_id, 10);
+    
+    if (isNaN(studentNoInt)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Student ID must be a valid number'
+      });
+    }
+    
     // Get connection from pool
     connection = await db.getConnection();
     
@@ -191,7 +201,7 @@ app.post('/api/auth/signup', async (req, res) => {
     // Also check if studentNo already exists
     const [existingStudentNo] = await connection.execute(
       'SELECT studentID FROM student WHERE studentNo = ?',
-      [student_id]
+      [studentNoInt]
     );
     
     if (existingStudentNo.length > 0) {
@@ -206,9 +216,18 @@ app.post('/api/auth/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
     // Insert new student using existing table structure
+    console.log('Inserting student with data:', {
+      name,
+      email,
+      studentNo: studentNoInt,
+      college: course,
+      program: year_level,
+      gender
+    });
+    
     const [result] = await connection.execute(
       'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, student_id, course, year_level, gender, 1] // counselorID set to 1 as default
+      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1] // counselorID set to 1 as default
     );
     
     // Get the created student
@@ -318,6 +337,31 @@ app.get('/api/debug/test-db', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Database connection failed',
+      error: error.message
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Debug endpoint to check table structure
+app.get('/api/debug/table-structure', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.getConnection();
+    const [columns] = await connection.execute('DESCRIBE student');
+    res.json({
+      success: true,
+      message: 'Table structure retrieved',
+      columns: columns
+    });
+  } catch (error) {
+    console.error('Table structure error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting table structure',
       error: error.message
     });
   } finally {
