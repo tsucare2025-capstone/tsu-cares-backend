@@ -161,14 +161,33 @@ app.post('/api/auth/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     
     // Find counselor based on student's college
-    const [counselorRows] = await db.execute(
+    console.log('Looking for counselor with college:', college);
+    
+    // First try exact match
+    let [counselorRows] = await db.execute(
       'SELECT counselorID FROM counselor WHERE assignedCollege = ?',
       [college]
     );
     
+    // If no exact match, try to find counselor who handles multiple colleges
+    if (counselorRows.length === 0) {
+      [counselorRows] = await db.execute(
+        'SELECT counselorID FROM counselor WHERE assignedCollege LIKE ?',
+        [`%${college}%`]
+      );
+    }
+    
+    console.log('Found counselors:', counselorRows);
+    
     let counselorID = null;
     if (counselorRows.length > 0) {
       counselorID = counselorRows[0].counselorID;
+      console.log('Assigned counselorID:', counselorID);
+    } else {
+      console.log('No counselor found for college:', college);
+      // Use the counselor who handles all colleges (counselorID 1)
+      counselorID = 1;
+      console.log('Using default counselorID:', counselorID);
     }
     
     // Insert new student with counselor assignment
