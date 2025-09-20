@@ -226,8 +226,8 @@ app.post('/api/auth/signup', async (req, res) => {
     });
     
     const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1] // counselorID set to 1 as default
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, studentNoInt, course, year_level, gender, 1, 0] // counselorID set to 1 as default, is_verified set to 0 (false)
     );
     
     // Get the created student
@@ -363,6 +363,44 @@ app.get('/api/debug/table-structure', async (req, res) => {
       success: false,
       message: 'Error getting table structure',
       error: error.message
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Debug endpoint to test signup with minimal data
+app.post('/api/debug/test-signup', async (req, res) => {
+  let connection;
+  try {
+    const { name, email, password, student_id, course, year_level, contact_number, gender } = req.body;
+    
+    // Convert student_id to integer
+    const studentNoInt = parseInt(student_id, 10);
+    
+    connection = await db.getConnection();
+    
+    // Test the exact INSERT query with all required fields
+    const [result] = await connection.execute(
+      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, email, password, studentNoInt, course, year_level, gender, 1, 0]
+    );
+    
+    res.json({
+      success: true,
+      message: 'Test signup successful',
+      insertId: result.insertId
+    });
+  } catch (error) {
+    console.error('Test signup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Test signup failed',
+      error: error.message,
+      code: error.code,
+      sqlState: error.sqlState
     });
   } finally {
     if (connection) {
