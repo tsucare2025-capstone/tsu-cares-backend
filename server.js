@@ -154,23 +154,23 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
   let connection;
   try {
-    const { name, email, password, student_id, course, year_level, contact_number, gender } = req.body;
+    const { name, email, password, studentNo, course, year_level, contact_number, gender } = req.body;
     console.log('Student signup attempt for email:', email, 'name:', name);
     
-    if (!name || !email || !password || !student_id || !course || !year_level || !contact_number || !gender) {
+    if (!name || !email || !password || !studentNo || !course || !year_level || !contact_number || !gender) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, password, student ID, course, year level, contact number, and gender are all required'
+        message: 'Name, email, password, student number, course, year level, contact number, and gender are all required'
       });
     }
     
-    // Convert student_id to integer since studentNo is mediumint
-    const studentNoInt = parseInt(student_id, 10);
+    // Convert studentNo to integer since studentNo is mediumint
+    const studentNoInt = parseInt(studentNo, 10);
     
     if (isNaN(studentNoInt)) {
       return res.status(400).json({
         success: false,
-        message: 'Student ID must be a valid number'
+        message: 'Student Number must be a valid number'
       });
     }
     
@@ -207,7 +207,7 @@ app.post('/api/auth/signup', async (req, res) => {
     if (existingStudentNo.length > 0) {
       return res.status(409).json({
         success: false,
-        message: 'Student ID already exists'
+        message: 'Student Number already exists'
       });
     }
     
@@ -375,10 +375,10 @@ app.get('/api/debug/table-structure', async (req, res) => {
 app.post('/api/debug/test-signup', async (req, res) => {
   let connection;
   try {
-    const { name, email, password, student_id, course, year_level, contact_number, gender } = req.body;
+    const { name, email, password, studentNo, course, year_level, contact_number, gender } = req.body;
     
-    // Convert student_id to integer
-    const studentNoInt = parseInt(student_id, 10);
+    // Convert studentNo to integer
+    const studentNoInt = parseInt(studentNo, 10);
     
     connection = await db.getConnection();
     
