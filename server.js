@@ -373,17 +373,36 @@ app.post('/api/debug/test-signup', async (req, res) => {
     
     connection = await db.getConnection();
     
-    // Test the exact INSERT query with all required fields
-    const [result] = await connection.execute(
-      'INSERT INTO student (name, email, password, studentNo, college, program, gender, counselorID, is_verified, otp, otp_expiry, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, email, password, studentNoInt, course, year_level, gender, 1, 0, '', null, contact_number]
-    );
-    
-    res.json({
-      success: true,
-      message: 'Test signup successful',
-      insertId: result.insertId
+    // First, let's see what fields are actually in the table
+    const [columns] = await connection.execute('DESCRIBE student');
+    console.log('=== TESTING WITH TABLE STRUCTURE ===');
+    columns.forEach(col => {
+      console.log(`${col.Field}: ${col.Type} | Null: ${col.Null} | Default: ${col.Default}`);
     });
+    
+    // Try a simple INSERT with just the basic fields first
+    try {
+      const [result] = await connection.execute(
+        'INSERT INTO student (name, email, password, studentNo) VALUES (?, ?, ?, ?)',
+        [name, email, password, studentNoInt]
+      );
+      
+      res.json({
+        success: true,
+        message: 'Basic test signup successful',
+        insertId: result.insertId,
+        columns: columns
+      });
+    } catch (insertError) {
+      console.error('Basic insert failed:', insertError);
+      res.status(500).json({
+        success: false,
+        message: 'Basic insert failed - showing required fields',
+        error: insertError.message,
+        code: insertError.code,
+        columns: columns
+      });
+    }
   } catch (error) {
     console.error('Test signup error:', error);
     res.status(500).json({
