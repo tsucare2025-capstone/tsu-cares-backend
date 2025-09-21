@@ -288,6 +288,24 @@ app.get('/api/debug-user/:userId', (req, res) => {
   });
 });
 
+// Debug endpoint to check messages table schema
+app.get('/api/debug-schema', async (req, res) => {
+  try {
+    const [columns] = await db.execute('DESCRIBE messages');
+    res.json({
+      success: true,
+      message: 'Messages table schema',
+      columns: columns
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      message: 'Error checking schema',
+      error: error.message
+    });
+  }
+});
+
 // Test endpoint to send message to specific user
 app.post('/api/test-message/:userId', (req, res) => {
   const userId = req.params.userId;
