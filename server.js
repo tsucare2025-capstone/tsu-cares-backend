@@ -18,7 +18,18 @@ console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
 console.log('PORT:', PORT);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: [
+        "http://localhost:5173", // Local development
+        "https://tsucare.netlify.app", // Production frontend
+        "http://localhost:3000", // Android emulator
+        "http://10.0.2.2:3000" // Android emulator localhost
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    exposedHeaders: ['Set-Cookie']
+}));
 app.use(express.json());
 
 // Database connection - Railway uses different environment variable names
@@ -228,6 +239,79 @@ app.get('/api/health', (req, res) => {
     message: 'TSU Cares API is running',
     timestamp: new Date().toISOString()
   });
+});
+
+// Messaging endpoints (adapted from groupmate's backend)
+
+// Get counselors for messaging
+app.get('/api/messages/users', async (req, res) => {
+  try {
+    const [counselors] = await db.execute(
+      'SELECT counselorID as _id, name, email FROM counselor'
+    );
+    res.status(200).json(counselors);
+  } catch (error) {
+    console.error('Error fetching counselors:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get messages between student and counselor
+app.get('/api/messages/:counselorId', async (req, res) => {
+  try {
+    const { counselorId } = req.params;
+    const studentId = req.query.studentId; // Get from query parameter for now
+    
+    if (!studentId) {
+      return res.status(400).json({ message: 'Student ID is required' });
+    }
+
+    const [messages] = await db.execute(
+      'SELECT * FROM messages WHERE (counselorID = ? AND studentID = ?) OR (counselorID = ? AND studentID = ?) ORDER BY timestamp',
+      [counselorId, studentId, studentId, counselorId]
+    );
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Send message from student to counselor
+app.post('/api/messages/:counselorId', async (req, res) => {
+  try {
+    const { message } = req.body;
+    const { counselorId } = req.params;
+    const studentId = req.query.studentId; // Get from query parameter for now
+    
+    if (!studentId) {
+      return res.status(400).json({ message: 'Student ID is required' });
+    }
+
+    if (!message) {
+      return res.status(400).json({ message: 'Message content is required' });
+    }
+
+    // Insert the message into database
+    const [result] = await db.execute(
+      'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
+      [counselorId, studentId, message]
+    );
+
+    // Create the response object
+    const newMessage = {
+      messageID: result.insertId,
+      counselorID: parseInt(counselorId),
+      studentID: parseInt(studentId),
+      text: message,
+      timestamp: new Date().toISOString()
+    };
+
+    res.status(200).json(newMessage);
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 // Start server
