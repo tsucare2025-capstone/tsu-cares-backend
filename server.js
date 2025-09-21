@@ -260,8 +260,60 @@ app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: 'TSU Cares API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    onlineUsers: Object.keys(userSocketMap)
   });
+});
+
+// Test Socket.IO endpoint
+app.get('/api/test-socket', (req, res) => {
+  io.emit("testMessage", { message: "Test from server", timestamp: new Date().toISOString() });
+  res.json({
+    success: true,
+    message: 'Test message sent to all connected clients',
+    onlineUsers: Object.keys(userSocketMap),
+    userSocketMap: userSocketMap
+  });
+});
+
+// Debug endpoint to check specific user connection
+app.get('/api/debug-user/:userId', (req, res) => {
+  const userId = req.params.userId;
+  const socketId = userSocketMap[userId];
+  res.json({
+    userId: userId,
+    socketId: socketId,
+    isOnline: !!socketId,
+    allUsers: Object.keys(userSocketMap)
+  });
+});
+
+// Test endpoint to send message to specific user
+app.post('/api/test-message/:userId', (req, res) => {
+  const userId = req.params.userId;
+  const { message } = req.body;
+  
+  const socketId = userSocketMap[userId];
+  if (socketId) {
+    io.to(socketId).emit("newMessage", {
+      messageID: 999999,
+      counselorID: 1,
+      studentID: parseInt(userId),
+      text: message || "Test message from server",
+      timestamp: new Date().toISOString()
+    });
+    res.json({
+      success: true,
+      message: `Test message sent to user ${userId}`,
+      socketId: socketId
+    });
+  } else {
+    res.json({
+      success: false,
+      message: `User ${userId} is not online`,
+      socketId: null
+    });
+  }
 });
 
 // Messaging endpoints (adapted from groupmate's backend)
@@ -347,15 +399,26 @@ app.post('/api/messages/:counselorId', async (req, res) => {
 
     // Emit real-time message to both counselor and student
     const receiverSocketId = getReceiverSocketId(counselorId);
+    console.log(`Looking for counselor ${counselorId}, socket ID: ${receiverSocketId}`);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", newMessage);
+      console.log(`Message sent to counselor ${counselorId}`);
+    } else {
+      console.log(`Counselor ${counselorId} not online`);
     }
 
     // Also emit to student if they're online
     const studentSocketId = getReceiverSocketId(studentId);
+    console.log(`Looking for student ${studentId}, socket ID: ${studentSocketId}`);
     if (studentSocketId) {
       io.to(studentSocketId).emit("newMessage", newMessage);
+      console.log(`Message sent to student ${studentId}`);
+    } else {
+      console.log(`Student ${studentId} not online`);
     }
+
+    // Debug: Show all online users
+    console.log("Current online users:", Object.keys(userSocketMap));
 
   } catch (error) {
     console.error('Error sending message:', error);
@@ -366,6 +429,7 @@ app.post('/api/messages/:counselorId', async (req, res) => {
 // Socket.IO event handlers
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
+  console.log("Query params:", socket.handshake.query);
   
   const counselorID = socket.handshake.query.counselorID;
   const studentID = socket.handshake.query.studentID;
@@ -374,6 +438,9 @@ io.on("connection", (socket) => {
   if (userID) {
     userSocketMap[userID] = socket.id;
     console.log(`User ${userID} connected with socket ${socket.id}`);
+    console.log("Current online users:", Object.keys(userSocketMap));
+  } else {
+    console.log("No user ID provided in connection");
   }
 
   // Emit the online users to all clients
@@ -383,6 +450,7 @@ io.on("connection", (socket) => {
     console.log("User disconnected:", socket.id);
     if (userID) {
       delete userSocketMap[userID];
+      console.log("Updated online users:", Object.keys(userSocketMap));
       io.emit("getOnlineUsers", Object.keys(userSocketMap));
     }
   });
