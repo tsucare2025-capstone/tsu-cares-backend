@@ -372,19 +372,38 @@ app.post('/api/messages/:counselorId', async (req, res) => {
     const { counselorId } = req.params;
     const studentId = req.query.studentId; // Get from query parameter for now
     
+    console.log(`Send message request - Counselor ID: ${counselorId}, Student ID: ${studentId}, Message: ${message}`);
+    
     if (!studentId) {
+      console.log('Error: Student ID is required');
       return res.status(400).json({ message: 'Student ID is required' });
     }
 
     if (!message) {
+      console.log('Error: Message content is required');
       return res.status(400).json({ message: 'Message content is required' });
     }
 
+    // Check if counselor exists
+    const [counselorCheck] = await db.execute(
+      'SELECT counselorID FROM counselor WHERE counselorID = ?',
+      [counselorId]
+    );
+    
+    if (counselorCheck.length === 0) {
+      console.log(`Error: Counselor with ID ${counselorId} not found`);
+      return res.status(404).json({ message: 'Counselor not found' });
+    }
+    
+    console.log(`Counselor ${counselorId} exists, proceeding with message insert`);
+
     // Insert the message into database
+    console.log(`Inserting message into database - Counselor ID: ${counselorId}, Student ID: ${studentId}, Message: ${message}`);
     const [result] = await db.execute(
       'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
       [counselorId, studentId, message]
     );
+    console.log(`Message inserted successfully with ID: ${result.insertId}`);
 
     // Create the response object
     const newMessage = {
