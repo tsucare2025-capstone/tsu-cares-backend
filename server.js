@@ -2,10 +2,33 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: [
+      "http://localhost:5173", // Local development
+      "https://tsucare.netlify.app", // Production frontend
+      "http://localhost:3000", // Android emulator
+      "http://10.0.2.2:3000" // Android emulator localhost
+    ],
+    credentials: true
+  }
+});
+
 const PORT = process.env.PORT || 3000;
+
+// Map to store online users and their sockets
+const userSocketMap = {};
+
+// Function to get the socket id of the receiver
+function getReceiverSocketId(receiverID) {
+  return userSocketMap[receiverID];
+}
 
 // Validate environment variables
 console.log('Environment variables check:');
@@ -256,6 +279,19 @@ app.get('/api/messages/users', async (req, res) => {
   }
 });
 
+// Get students for counselors (for web app)
+app.get('/api/messages/students', async (req, res) => {
+  try {
+    const [students] = await db.execute(
+      'SELECT studentID as _id, name, email, college FROM student'
+    );
+    res.status(200).json(students);
+  } catch (error) {
+    console.error('Error fetching students:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Get messages between student and counselor
 app.get('/api/messages/:counselorId', async (req, res) => {
   try {
@@ -308,10 +344,48 @@ app.post('/api/messages/:counselorId', async (req, res) => {
     };
 
     res.status(200).json(newMessage);
+
+    // Emit real-time message to both counselor and student
+    const receiverSocketId = getReceiverSocketId(counselorId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("newMessage", newMessage);
+    }
+
+    // Also emit to student if they're online
+    const studentSocketId = getReceiverSocketId(studentId);
+    if (studentSocketId) {
+      io.to(studentSocketId).emit("newMessage", newMessage);
+    }
+
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
+});
+
+// Socket.IO event handlers
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+  
+  const counselorID = socket.handshake.query.counselorID;
+  const studentID = socket.handshake.query.studentID;
+  const userID = counselorID || studentID;
+  
+  if (userID) {
+    userSocketMap[userID] = socket.id;
+    console.log(`User ${userID} connected with socket ${socket.id}`);
+  }
+
+  // Emit the online users to all clients
+  io.emit("getOnlineUsers", Object.keys(userSocketMap));
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+    if (userID) {
+      delete userSocketMap[userID];
+      io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    }
+  });
 });
 
 // Start server
@@ -319,9 +393,10 @@ async function startServer() {
   try {
     await initDatabase();
     
-    const server = app.listen(PORT, '0.0.0.0', () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Server is running on port ${PORT}`);
       console.log(`✅ Health check: http://localhost:${PORT}/api/health`);
+      console.log(`✅ Socket.IO server ready for real-time messaging`);
     });
 
     // Graceful shutdown
