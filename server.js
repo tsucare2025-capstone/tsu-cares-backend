@@ -363,7 +363,87 @@ app.post('/api/messages/:counselorId', async (req, res) => {
       counselorID: parseInt(counselorId),
       studentID: parseInt(studentId),
       text: message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      senderType: 'student' // This message was sent by the student
+    };
+    
+    res.json({
+      success: true,
+      data: newMessage
+    });
+    
+    // Emit real-time message to both counselor and student
+    const receiverSocketId = getReceiverSocketId(counselorId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("newMessage", newMessage);
+      console.log(`Message sent to counselor ${counselorId}`);
+    }
+    
+    const studentSocketId = getReceiverSocketId(studentId);
+    if (studentSocketId) {
+      io.to(studentSocketId).emit("newMessage", newMessage);
+      console.log(`Message sent to student ${studentId}`);
+    }
+    
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Send message from counselor to student
+app.post('/api/messages/counselor/:studentId', async (req, res) => {
+  try {
+    const { message } = req.body;
+    const { studentId } = req.params;
+    const { counselorId } = req.query;
+    
+    console.log(`Counselor send message request - Counselor ID: ${counselorId}, Student ID: ${studentId}, Message: ${message}`);
+    
+    if (!counselorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Counselor ID is required'
+      });
+    }
+    
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message content is required'
+      });
+    }
+    
+    // Check if student exists
+    const [studentCheck] = await db.execute(
+      'SELECT studentID FROM student WHERE studentID = ?',
+      [studentId]
+    );
+    
+    if (studentCheck.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    // Insert the message into database
+    const [result] = await db.execute(
+      'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
+      [counselorId, studentId, message]
+    );
+    
+    // Create the response object
+    const newMessage = {
+      messageID: result.insertId,
+      counselorID: parseInt(counselorId),
+      studentID: parseInt(studentId),
+      text: message,
+      timestamp: new Date().toISOString(),
+      senderType: 'counselor' // This message was sent by the counselor
     };
     
     res.json({
