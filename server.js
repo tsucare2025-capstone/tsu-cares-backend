@@ -24,6 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 // Map to store online users and their sockets
 const userSocketMap = {};
+const userTypeMap = {}; // Track if user is counselor or student
 
 // Function to get the socket id of the receiver
 function getReceiverSocketId(receiverID) {
@@ -263,27 +264,66 @@ app.get('/api/health', (req, res) => {
 
 // Debug endpoint to check online status
 app.get('/api/debug-online', (req, res) => {
-  // Only show counselors as online users
-  const onlineCounselors = Object.keys(userSocketMap).filter(id => {
-    // Filter out students, only show counselors
-    return true; // For now, assume all connected users are counselors
+  const onlineUsers = Object.keys(userSocketMap);
+  const onlineCounselors = onlineUsers.filter(id => {
+    return userTypeMap[id] === 'counselor';
   });
   
   res.json({
     success: true,
     message: 'Online status debug',
-    onlineUsers: onlineCounselors,
+    onlineUsers: onlineUsers,
+    onlineCounselors: onlineCounselors,
     userSocketMap: userSocketMap,
+    userTypeMap: userTypeMap,
     timestamp: new Date().toISOString()
   });
 });
 
 // Get all counselors for students
+// Get counselors - if studentId provided, return only assigned counselor
 app.get('/api/counselors', async (req, res) => {
   try {
-    const [counselors] = await db.execute(
-      'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE is_verified = 1'
-    );
+    const { studentId } = req.query;
+    
+    let counselors;
+    
+    if (studentId) {
+      // Get counselor assigned to specific student
+      const [students] = await db.execute(
+        'SELECT counselorID FROM student WHERE studentID = ?',
+        [studentId]
+      );
+      
+      if (students.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student not found'
+        });
+      }
+      
+      const counselorId = students[0].counselorID;
+      
+      const [counselorRows] = await db.execute(
+        'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE counselorID = ? AND is_verified = 1',
+        [counselorId]
+      );
+      
+      if (counselorRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Assigned counselor not found'
+        });
+      }
+      
+      counselors = counselorRows;
+    } else {
+      // Get all counselors (for admin purposes)
+      const [counselorRows] = await db.execute(
+        'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE is_verified = 1'
+      );
+      counselors = counselorRows;
+    }
     
     // Get online status for each counselor
     const counselorsWithStatus = counselors.map(counselor => ({
@@ -300,6 +340,63 @@ app.get('/api/counselors', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching counselors:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Get counselor assigned to a specific student
+app.get('/api/counselors/student/:studentId', async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    
+    // First get the student's counselorID
+    const [students] = await db.execute(
+      'SELECT counselorID FROM student WHERE studentID = ?',
+      [studentId]
+    );
+    
+    if (students.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    const counselorId = students[0].counselorID;
+    
+    // Get the counselor details
+    const [counselors] = await db.execute(
+      'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE counselorID = ? AND is_verified = 1',
+      [counselorId]
+    );
+    
+    if (counselors.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Assigned counselor not found'
+      });
+    }
+    
+    const counselor = counselors[0];
+    
+    // Add online status and messaging info
+    const counselorWithStatus = {
+      ...counselor,
+      isOnline: !!userSocketMap[counselor.counselorID],
+      lastMessage: null,
+      lastMessageTime: null,
+      unreadCount: 0
+    };
+    
+    res.json({
+      success: true,
+      data: [counselorWithStatus] // Return as array for consistency with Android app
+    });
+  } catch (error) {
+    console.error('Error fetching student counselor:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -678,18 +775,25 @@ io.on("connection", (socket) => {
   
   if (userID) {
     userSocketMap[userID] = socket.id;
-    console.log(`User ${userID} connected with socket ${socket.id}`);
+    
+    // Track user type
+    if (counselorID) {
+      userTypeMap[userID] = 'counselor';
+      console.log(`Counselor ${userID} connected with socket ${socket.id}`);
+    } else if (studentID) {
+      userTypeMap[userID] = 'student';
+      console.log(`Student ${userID} connected with socket ${socket.id}`);
+    }
+    
     console.log("Current online users:", Object.keys(userSocketMap));
+    console.log("User types:", userTypeMap);
   } else {
     console.log("No user ID provided in connection");
   }
   
   // Only emit counselors as online users (not students)
   const onlineCounselors = Object.keys(userSocketMap).filter(id => {
-    // Check if this ID belongs to a counselor by querying the database
-    // For now, we'll assume counselor IDs are 1, 2, 3, etc.
-    // In production, you might want to verify this against the counselor table
-    return !studentID || id !== studentID.toString();
+    return userTypeMap[id] === 'counselor';
   });
   
   console.log("Online counselors:", onlineCounselors);
@@ -699,11 +803,13 @@ io.on("connection", (socket) => {
     console.log("User disconnected:", socket.id);
     if (userID) {
       delete userSocketMap[userID];
+      delete userTypeMap[userID];
       console.log("Updated online users:", Object.keys(userSocketMap));
+      console.log("Updated user types:", userTypeMap);
       
       // Only emit counselors as online users (not students)
       const onlineCounselors = Object.keys(userSocketMap).filter(id => {
-        return !studentID || id !== studentID.toString();
+        return userTypeMap[id] === 'counselor';
       });
       
       console.log("Online counselors after disconnect:", onlineCounselors);
