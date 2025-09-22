@@ -315,7 +315,7 @@ app.get('/api/messages/:counselorId', async (req, res) => {
   }
 });
 
-// Send message
+// Send message - Student ID comes from the logged-in user's session
 app.post('/api/messages/:counselorId', async (req, res) => {
   try {
     const { message } = req.body;
