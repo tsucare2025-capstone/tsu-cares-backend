@@ -375,10 +375,26 @@ app.post('/api/messages/:counselorId', async (req, res) => {
     }
     
     // Insert the message into database
-    const [result] = await db.execute(
-      'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
-      [counselorId, studentId, message]
-    );
+    // Try with senderType first, fallback to without if column doesn't exist
+    let result;
+    try {
+      // Try to insert with senderType column
+      [result] = await db.execute(
+        'INSERT INTO messages (counselorID, studentID, text, senderType, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        [counselorId, studentId, message, 'student']
+      );
+    } catch (error) {
+      if (error.code === 'ER_BAD_FIELD_ERROR' && error.sqlMessage.includes('senderType')) {
+        // senderType column doesn't exist, insert without it
+        console.log('senderType column not found, inserting without it');
+        [result] = await db.execute(
+          'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
+          [counselorId, studentId, message]
+        );
+      } else {
+        throw error; // Re-throw if it's a different error
+      }
+    }
     
     // Create the response object
     const newMessage = {
@@ -454,10 +470,26 @@ app.post('/api/messages/counselor/:studentId', async (req, res) => {
     }
     
     // Insert the message into database
-    const [result] = await db.execute(
-      'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
-      [counselorId, studentId, message]
-    );
+    // Try with senderType first, fallback to without if column doesn't exist
+    let result;
+    try {
+      // Try to insert with senderType column
+      [result] = await db.execute(
+        'INSERT INTO messages (counselorID, studentID, text, senderType, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        [counselorId, studentId, message, 'counselor']
+      );
+    } catch (error) {
+      if (error.code === 'ER_BAD_FIELD_ERROR' && error.sqlMessage.includes('senderType')) {
+        // senderType column doesn't exist, insert without it
+        console.log('senderType column not found, inserting without it');
+        [result] = await db.execute(
+          'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
+          [counselorId, studentId, message]
+        );
+      } else {
+        throw error; // Re-throw if it's a different error
+      }
+    }
     
     // Create the response object
     const newMessage = {
@@ -578,10 +610,26 @@ app.post('/api/student-messages/:counselorId', async (req, res) => {
     }
     
     // Insert message into database
-    const [result] = await db.execute(
-      'INSERT INTO messages (counselorID, studentID, text, senderType) VALUES (?, ?, ?, ?)',
-      [counselorId, studentId, message.trim(), 'student']
-    );
+    // Try with senderType first, fallback to without if column doesn't exist
+    let result;
+    try {
+      // Try to insert with senderType column
+      [result] = await db.execute(
+        'INSERT INTO messages (counselorID, studentID, text, senderType, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        [counselorId, studentId, message.trim(), 'student']
+      );
+    } catch (error) {
+      if (error.code === 'ER_BAD_FIELD_ERROR' && error.sqlMessage.includes('senderType')) {
+        // senderType column doesn't exist, insert without it
+        console.log('senderType column not found, inserting without it');
+        [result] = await db.execute(
+          'INSERT INTO messages (counselorID, studentID, text, timestamp) VALUES (?, ?, ?, NOW())',
+          [counselorId, studentId, message.trim()]
+        );
+      } else {
+        throw error; // Re-throw if it's a different error
+      }
+    }
     
     const newMessage = {
       messageID: result.insertId,
@@ -589,7 +637,7 @@ app.post('/api/student-messages/:counselorId', async (req, res) => {
       studentID: parseInt(studentId),
       text: message.trim(),
       timestamp: new Date().toISOString(),
-      senderType: 'student'
+      senderType: 'student' // Will be added to database later
     };
     
     res.json({
