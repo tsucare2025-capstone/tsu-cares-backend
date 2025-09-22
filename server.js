@@ -269,11 +269,16 @@ app.get('/api/debug-online', (req, res) => {
     return userTypeMap[id] === 'counselor';
   });
   
+  const onlineStudents = onlineUsers.filter(id => {
+    return userTypeMap[id] === 'student';
+  });
+  
   res.json({
     success: true,
     message: 'Online status debug',
     onlineUsers: onlineUsers,
     onlineCounselors: onlineCounselors,
+    onlineStudents: onlineStudents,
     userSocketMap: userSocketMap,
     userTypeMap: userTypeMap,
     timestamp: new Date().toISOString()
@@ -281,78 +286,18 @@ app.get('/api/debug-online', (req, res) => {
 });
 
 // Get all counselors for students
-// Get counselors - if studentId provided, return only assigned counselor
 app.get('/api/counselors', async (req, res) => {
   try {
     const { studentId } = req.query;
     
-    let counselors;
-    
-    if (studentId) {
-      // Get counselor assigned to specific student
-      const [students] = await db.execute(
-        'SELECT counselorID FROM student WHERE studentID = ?',
-        [studentId]
-      );
-      
-      if (students.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Student not found'
-        });
-      }
-      
-      const counselorId = students[0].counselorID;
-      
-      const [counselorRows] = await db.execute(
-        'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE counselorID = ? AND is_verified = 1',
-        [counselorId]
-      );
-      
-      if (counselorRows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Assigned counselor not found'
-        });
-      }
-      
-      counselors = counselorRows;
-    } else {
-      // Get all counselors (for admin purposes)
-      const [counselorRows] = await db.execute(
-        'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE is_verified = 1'
-      );
-      counselors = counselorRows;
+    if (!studentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Student ID is required'
+      });
     }
     
-    // Get online status for each counselor
-    const counselorsWithStatus = counselors.map(counselor => ({
-      ...counselor,
-      isOnline: !!userSocketMap[counselor.counselorID],
-      lastMessage: null,
-      lastMessageTime: null,
-      unreadCount: 0
-    }));
-    
-    res.json({
-      success: true,
-      data: counselorsWithStatus
-    });
-  } catch (error) {
-    console.error('Error fetching counselors:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Get counselor assigned to a specific student
-app.get('/api/counselors/student/:studentId', async (req, res) => {
-  try {
-    const { studentId } = req.params;
-    
-    // First get the student's counselorID
+    // Get the student's assigned counselor
     const [students] = await db.execute(
       'SELECT counselorID FROM student WHERE studentID = ?',
       [studentId]
@@ -365,12 +310,12 @@ app.get('/api/counselors/student/:studentId', async (req, res) => {
       });
     }
     
-    const counselorId = students[0].counselorID;
+    const assignedCounselorId = students[0].counselorID;
     
-    // Get the counselor details
+    // Get the assigned counselor details
     const [counselors] = await db.execute(
       'SELECT counselorID, name, email, profession, assignedCollege FROM counselor WHERE counselorID = ? AND is_verified = 1',
-      [counselorId]
+      [assignedCounselorId]
     );
     
     if (counselors.length === 0) {
@@ -380,9 +325,8 @@ app.get('/api/counselors/student/:studentId', async (req, res) => {
       });
     }
     
+    // Get online status for the counselor
     const counselor = counselors[0];
-    
-    // Add online status and messaging info
     const counselorWithStatus = {
       ...counselor,
       isOnline: !!userSocketMap[counselor.counselorID],
@@ -393,10 +337,10 @@ app.get('/api/counselors/student/:studentId', async (req, res) => {
     
     res.json({
       success: true,
-      data: [counselorWithStatus] // Return as array for consistency with Android app
+      data: [counselorWithStatus] // Return as array for consistency
     });
   } catch (error) {
-    console.error('Error fetching student counselor:', error);
+    console.error('Error fetching assigned counselor:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -521,6 +465,10 @@ app.post('/api/messages/:counselorId', async (req, res) => {
       console.log(`Message sent to student ${studentId}`);
     }
     
+    // Also broadcast to all clients for real-time updates
+    io.emit("newMessage", newMessage);
+    console.log(`Message broadcasted to all clients`);
+    
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({
@@ -615,6 +563,10 @@ app.post('/api/messages/counselor/:studentId', async (req, res) => {
       io.to(studentSocketId).emit("newMessage", newMessage);
       console.log(`Message sent to student ${studentId}`);
     }
+    
+    // Also broadcast to all clients for real-time updates
+    io.emit("newMessage", newMessage);
+    console.log(`Message broadcasted to all clients`);
     
   } catch (error) {
     console.error('Error sending message:', error);
@@ -755,6 +707,10 @@ app.post('/api/student-messages/:counselorId', async (req, res) => {
       console.log(`Message sent to student ${studentId}`);
     }
     
+    // Also broadcast to all clients for real-time updates
+    io.emit("newMessage", newMessage);
+    console.log(`Message broadcasted to all clients`);
+    
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({
@@ -791,13 +747,24 @@ io.on("connection", (socket) => {
     console.log("No user ID provided in connection");
   }
   
-  // Only emit counselors as online users (not students)
+  // Emit online users with separate arrays for counselors and students
   const onlineCounselors = Object.keys(userSocketMap).filter(id => {
     return userTypeMap[id] === 'counselor';
   });
   
+  const onlineStudents = Object.keys(userSocketMap).filter(id => {
+    return userTypeMap[id] === 'student';
+  });
+  
   console.log("Online counselors:", onlineCounselors);
-  io.emit("getOnlineUsers", onlineCounselors);
+  console.log("Online students:", onlineStudents);
+  
+  // Emit both counselors and students for cross-platform visibility
+  io.emit("getOnlineUsers", {
+    counselors: onlineCounselors,
+    students: onlineStudents,
+    all: Object.keys(userSocketMap)
+  });
   
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
@@ -807,13 +774,24 @@ io.on("connection", (socket) => {
       console.log("Updated online users:", Object.keys(userSocketMap));
       console.log("Updated user types:", userTypeMap);
       
-      // Only emit counselors as online users (not students)
+      // Emit online users with separate arrays for counselors and students
       const onlineCounselors = Object.keys(userSocketMap).filter(id => {
         return userTypeMap[id] === 'counselor';
       });
       
+      const onlineStudents = Object.keys(userSocketMap).filter(id => {
+        return userTypeMap[id] === 'student';
+      });
+      
       console.log("Online counselors after disconnect:", onlineCounselors);
-      io.emit("getOnlineUsers", onlineCounselors);
+      console.log("Online students after disconnect:", onlineStudents);
+      
+      // Emit both counselors and students for cross-platform visibility
+      io.emit("getOnlineUsers", {
+        counselors: onlineCounselors,
+        students: onlineStudents,
+        all: Object.keys(userSocketMap)
+      });
     }
   });
 });
